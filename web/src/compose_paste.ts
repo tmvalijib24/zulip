@@ -772,6 +772,20 @@ function do_paste_text(
     compose_ui.insert_and_scroll_into_view(text_to_insert, $textarea);
 }
 
+export function normalize_tabs_to_spaces(text: string): string {
+    return text
+        .split("\n")
+        .map((line) => {
+            // Check if the line starts with tabs followed by a list marker and a space
+            if (/^\t+([*+-]|\d+\.)\s/.test(line)) {
+                // Replace leading tabs with '2' spaces per tab level
+                return line.replace(/^(\t+)/, (match) => "  ".repeat(match.length));
+            }
+            return line;
+        })
+        .join("\n");
+}
+
 export function paste_handler(
     this: HTMLTextAreaElement,
     event: JQuery.TriggeredEvent,
@@ -792,8 +806,17 @@ export function paste_handler(
     if (clipboardData.getData) {
         const $textarea = $(this);
         const existing_text = $textarea.val() ?? "";
-        const paste_text = clipboardData.getData("text");
+        let paste_text = clipboardData.getData("text");
         let paste_html = clipboardData.getData("text/html");
+        // check if the pasted text has nested lists indented with tabs
+        const has_tab_indented_list =
+            !compose_ui.cursor_inside_code_block($textarea) &&
+            /^\t+([*+-]|\d+\.)\s/m.test(paste_text);
+
+        if (has_tab_indented_list) {
+            paste_text = normalize_tabs_to_spaces(paste_text);
+        }
+
         const reverse_linkified_text = compose_ui.reverse_linkify_text(paste_text);
         // Trim the paste_text to accommodate sloppy copying
         const trimmed_paste_text = paste_text.trim();
@@ -881,7 +904,7 @@ export function paste_handler(
         // if not, we proceed with the default formatted paste.
         if (
             !compose_ui.cursor_inside_code_block($textarea) &&
-            (paste_html || reverse_linkified_text !== null) &&
+            (paste_html || reverse_linkified_text !== null || has_tab_indented_list) &&
             !compose_ui.shift_pressed
         ) {
             if (is_single_image(paste_html)) {
